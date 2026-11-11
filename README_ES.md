@@ -40,7 +40,7 @@ Sumas de verificación disponibles en [`SHA256SUMS.txt`](https://github.com/Gabo
 
 ---
 
-## Inicio Rápido
+## Inicio Rápido (30 Segundos)
 
 ```bash
 # 1. Generar una llave privada de 256 bits (permisos seguros 0600)
@@ -63,7 +63,7 @@ caracol extract -i entregable.pdf -k secreta.key -v
 * **Esteganografía Sigilosa (`hide` / `extract`)**:
   Inyecta la carga cifrada después de las marcas de fin de archivo legítimas (PDF `%%EOF`, PNG `IEND`, JPEG `EOI`). Visores como Adobe Acrobat o visores de imágenes abren el documento normalmente.
 * **Ancla con Conocimiento Cero (*Zero-Knowledge Anchor*)**:
-  Si un tercero analiza el archivo con `caracol -a documento.pdf` sin tener la llave, el sistema reporta un documento limpio. Solo pasando `-k secreta.key` se valida el HMAC del ancla y se revela la existencia de la carga.
+  Si un tercero analiza el archivo con `caracol -a documento.pdf` sin tener la llave, el sistema reporta un documento limpio. Solo pasando `-k secreta.key` o `-p password` se valida el HMAC del ancla y se revela la existencia de la carga.
 * **Laberinto de Señuelos (`--decoys`, `--false-exits`)**:
   Genera matrices falsas con rutas señuelo y trampas de datos cebo para dificultar y desviar cualquier análisis forense.
 * **Descifrado con Auto-Resolución**:
@@ -79,7 +79,7 @@ caracol extract -i entregable.pdf -k secreta.key -v
 
 | Bandera | Nombre Largo | Subcomandos | Descripción |
 | :--- | :--- | :--- | :--- |
-| `-k` | `--key <ruta.key>` | Todos | Archivo de llave privada de 256 bits |
+| `-k` | `--key <ruta.key>` | Todos | Archivo de llave privada de 256 bits (máxima seguridad CSPRNG) |
 | `-p` | `--passphrase <txt>`| Todos | Contraseña alternativa (derivada con PBKDF2 a 100k rondas) |
 | `-i` | `--in <archivo>` | `seal`, `hide`, `extract`, `open` | Archivo de entrada a cifrar o contenedor a abrir |
 | `-t` | `--text <texto>` | `seal`, `hide` | Texto directo a cifrar (sin archivo previo) |
@@ -93,37 +93,216 @@ caracol extract -i entregable.pdf -k secreta.key -v
 
 ---
 
-## Ejemplos de Uso
+## Guía Práctica y Casos Didácticos
 
-### Arquitectura de Laberinto Personalizada
-Genera laberintos masivos para almacenamiento de alta seguridad:
+Esta sección está organizada para demostraciones técnicas, talleres y clases de criptografía práctica.
+
+### 1. Métodos de Autenticación: Llave (`-k`) vs Contraseña (`-p`)
+
+Caracol Cipher ofrece dos modelos de acceso independientes:
+
+| Característica | Archivo de Llave (`-k clave.key`) | Contraseña (`-p "mi_clave"`) |
+| :--- | :--- | :--- |
+| **Origen de Entropía** | CSPRNG puro de 256 bits (`/dev/urandom` o `BCryptGenRandom`) | Texto plano derivado mediante PBKDF2 |
+| **Rondas de Hash** | Directo de hardware/OS (2^256 combinaciones) | 100,000 iteraciones de HMAC-SHA256 con salt único |
+| **Resistencia Forense** | Inmune a ataques de diccionario y fuerza bruta | Resistente contra aceleradores GPU/ASIC por coste PBKDF2 |
+| **Caso de Uso Recomendado** | Infraestructura crítica, copias de seguridad, agentes | Operaciones rápidas en campo, intercambio verbal de claves |
+
+#### Ejemplo con Archivo de Llave (`-k`):
 ```bash
-caracol seal -i datos.zip -o seguro.snail -p "MiPassword123" \
+# Paso 1: Generar archivo de llave privada
+caracol keygen -o operacion.key
+
+# Paso 2: Cifrar usando la llave
+caracol seal -i reporte.pdf -o paquete.snail -k operacion.key -v
+
+# Paso 3: Abrir usando la llave
+caracol open -i paquete.snail -k operacion.key -v
+```
+
+#### Ejemplo con Contraseña Rápida (`-p`):
+```bash
+# Cifrar directamente con contraseña (no requiere generar archivo previo)
+caracol seal -t "Credenciales de contingencia" -o backup.snail -p "MiPasswordRobusto!2026" -v
+
+# Abrir directamente con la misma contraseña
+caracol open -i backup.snail -p "MiPasswordRobusto!2026" -v
+```
+
+---
+
+### 2. Modalidades de Carga: Texto, Archivos y Mensaje Secreto en Cabecera
+
+#### A. Cifrado Directo de Texto (`-t`):
+No necesitas crear un archivo de texto en disco. El texto cifrado se protege dentro del laberinto y al abrirlo se muestra en consola:
+```bash
+caracol seal -t "Coordenadas: 19.4326,-99.1332 | Canal 440MHz" -o coords.snail -p "ClaveAlpha" -v
+caracol open -i coords.snail -p "ClaveAlpha" -v
+```
+
+#### B. Cifrado de Archivos Binarios Arbitrarios (`-i`):
+Admite cualquier formato binario (`.docx`, `.xlsx`, `.gr`, `.zip`, `.pdf`, `.tar.gz`, etc.). Preserva el nombre y extensión originales:
+```bash
+caracol seal -i contrato_confidencial.docx -o contrato.snail -k operacion.key -v
+caracol open -i contrato.snail -k operacion.key -v
+# Restaura automaticamente el archivo 'contrato_confidencial.docx' intacto
+```
+
+#### C. Doble Carga: Archivo Principal + Mensaje Secreto en Cabecera (`-m`):
+Permite incluir una carga principal (archivo o texto) y adjuntar simultáneamente un mensaje secreto que se revela de forma destacada al descifrar:
+```bash
+caracol seal -i base_datos.sqlite \
+    -m "AVISO: Esta base de datos expira en 24 horas. Destruir despues de leer." \
+    -o base.snail \
+    -p "ClaveDeAccesoSegura" -v
+
+# Al abrir:
+caracol open -i base.snail -p "ClaveDeAccesoSegura" -v
+```
+Salida en consola:
+```text
+[ÉXITO] Archivo restaurado a su estado original: base_datos.sqlite
+[MENSAJE SECRETO OCULTO]: AVISO: Esta base de datos expira en 24 horas. Destruir despues de leer.
+```
+
+---
+
+### 3. Esteganografía en Documentos Legítimos (`hide` / `extract`)
+
+Inyecta cargas cifradas dentro de documentos existentes (PDF, PNG, JPG, ZIP). El archivo resultante mantiene su aspecto, funcionalidad y tamaño percibido normales:
+
+```bash
+# Inyectar una hoja de calculo (balance.xlsx) dentro de un PDF corporativo legitimo
+caracol hide -c manual_publico.pdf -i balance.xlsx -o manual_distribuible.pdf -k operacion.key -v
+
+# Opcional: Agregar mensaje secreto en cabecera esteganografica
+caracol hide -c foto_oficina.png -t "Canal alterno: radio 144.200 MHz" \
+    -m "Contacto de enlace en sitio seguro" \
+    -o foto_compartida.png -p "ClaveCampo" -v
+```
+
+#### Cómo extraer el contenido oculto:
+```bash
+# Extraer restaurando el nombre y extension originales
+caracol extract -i manual_distribuible.pdf -k operacion.key -v
+
+# Extraer indicando un nombre de salida personalizado
+caracol extract -i manual_distribuible.pdf -o balance_recuperado.xlsx -k operacion.key -v
+```
+
+---
+
+### 4. Inspección Forense con Conocimiento Cero (`-a`)
+
+Demostración en clase de cómo reacciona un analista con herramientas forenses frente al Ancla ZKS:
+
+```bash
+# 1. Un tercero o analista forense inspecciona el PDF distribuido:
+caracol -a manual_distribuible.pdf
+```
+Salida:
+```text
+  Archivo analizado  : manual_distribuible.pdf
+  Formato detectado  : Documento Adobe PDF
+  Tamaño total       : 184520 bytes (180.20 KB)
+  Fin legitimo (EOF) : byte 184520
+  [i] MODO SIGILOSO ACTIVO: No se detecto ninguna firma publica en texto plano.
+```
+
+```bash
+# 2. El destinatario legitimo inspecciona con su llave privada o contrasena:
+caracol -a manual_distribuible.pdf -k operacion.key
+```
+Salida:
+```text
+  [CARGA CARACOL DETECTADA Y AUTENTICADA]
+  Offset de inyeccion: byte 184520
+  Dimension Matriz   : 128x128 (16384 celdas/caracol)
+  Laberinto Caracol  : 9 caracoles (1 Real + 8 Señuelos Estructurales)
+  Estado             : Cifrado con llave privada verificada (HMAC OK)
+```
+
+---
+
+### 5. Laboratorio Avanzado: Anidamiento Matrioshka Multicapa (Denegación Plausible)
+
+Este ejercicio demuestra la técnica de capas esteganográficas anidadas para escenarios de coacción o inspección hostil.
+
+```text
+[PDF Publico: contrato.pdf]
+     └── Oculta [PNG: diagrama.png] (Clave 3)
+              └── Oculta [XLSX: contabilidad.xlsx] (Clave 2)
+                       └── Oculta [SNAIL: nivel1.snail] (Clave 1)
+                                └── Contiene [TXT: coordenadas_reales.txt]
+```
+
+#### Paso 1: Crear el núcleo secreto
+```bash
+caracol seal -t "OBJETIVO: Servidor central IP 10.0.0.50 | Credenciales: admin/root_key" \
+    -m "Nivel de seguridad Alpha: Solo para el comandante de mision" \
+    -o nivel1.snail \
+    -p "Clave1_UltraSecreta" -v
+```
+
+#### Paso 2: Ocultar el contenedor en una hoja de cálculo señuelo
+```bash
+# Ocultamos nivel1.snail dentro de un Excel real
+caracol hide -c contabilidad.xlsx -i nivel1.snail -o contabilidad_auditada.xlsx -p "Clave2_Finanzas" -v
+```
+
+#### Paso 3: Ocultar el Excel dentro de una imagen PNG señuelo
+```bash
+# Ocultamos contabilidad_auditada.xlsx dentro de diagrama.png
+caracol hide -c diagrama.png -i contabilidad_auditada.xlsx -o diagrama_final.png -p "Clave3_Marketing" -v
+```
+
+#### Paso 4: Ocultar la imagen PNG dentro de un PDF oficial público
+```bash
+# Ocultamos diagrama_final.png dentro de informe_legal.pdf
+caracol hide -c informe_legal.pdf -i diagrama_final.png -o informe_distribuible.pdf -p "Clave4_Publica" -v
+```
+
+#### Procedimiento de extracción inversa en el aula:
+1. **Bajo coacción en el Nivel 4**: Entregas `Clave4_Publica`. El examinador extrae `diagrama_final.png`, una imagen PNG válida y visible. El examinador cree que ha obtenido el contenido secreto.
+   ```bash
+   caracol extract -i informe_distribuible.pdf -p "Clave4_Publica" -v
+   ```
+2. **Si el examinador sospecha y exige Nivel 3**: Entregas `Clave3_Marketing`. El examinador extrae `contabilidad_auditada.xlsx`, una hoja de cálculo Excel funcional con fórmulas y números creíbles.
+   ```bash
+   caracol extract -i diagrama_final.png -p "Clave3_Marketing" -v
+   ```
+3. **El receptor real con acceso completo continúa**:
+   ```bash
+   caracol extract -i contabilidad_auditada.xlsx -p "Clave2_Finanzas" -v
+   # Obtiene nivel1.snail
+
+   caracol open -i nivel1.snail -p "Clave1_UltraSecreta" -v
+   # Revela las coordenadas y el mensaje secreto de mision
+   ```
+
+---
+
+### 6. Arquitectura del Laberinto y Auto-Resolución
+
+Puedes ajustar la complejidad de cada contenedor mediante banderas de geometría:
+
+```bash
+caracol seal -i archivo.zip -o bunker.snail -p "ClaveBunker" \
     --dim 256 \
     --decoys 32 \
     --false-exits 64 \
     -v
 ```
-Para abrirlo, solo necesitas la contraseña:
+* **`--dim 256`**: Matriz NxN de 256x256 posiciones (65,536 celdas de permutación por cada caracol).
+* **`--decoys 32`**: 32 matrices señuelo idénticas en estructura al caracol real.
+* **`--false-exits 64`**: 64 salidas trampa con cabeceras falsas por cada señuelo (2,048 rutas señuelo).
+
+#### El principio de Auto-Resolución:
+Para descifrar **NUNCA necesitas pasar `--dim`, `--decoys` ni `--false-exits`**. El destinatario solo ejecuta:
 ```bash
-caracol open -i seguro.snail -p "MiPassword123" -v
+caracol open -i bunker.snail -p "ClaveBunker" -v
 ```
-
-### Análisis Forense Sigiloso (`-a`)
-```bash
-# Sin llave: reporta documento limpio sin firmas
-caracol -a entregable.pdf
-
-# Con llave correcta: autentica el HMAC y muestra los datos del contenedor
-caracol -a entregable.pdf -k secreta.key
-```
-
-### Anidamiento Matrioshka (Denegación Plausible)
-1. Cifrar archivo confidencial: `caracol seal -t "Semilla Secreta" -o capa1.snail -p "Clave1"`
-2. Ocultar `capa1.snail` en un Excel: `caracol hide -c libro.xlsx -i capa1.snail -o libro_mod.xlsx -p "Clave2"`
-3. Ocultar `libro_mod.xlsx` en una imagen PNG: `caracol hide -c foto.png -i libro_mod.xlsx -o final.png -p "Clave3"`
-
-Bajo coacción, entregar `Clave3` solo revela un archivo de Excel legítimo y funcional, sin forma matemática de sospechar que dentro existe otro contenedor `.snail`.
+El motor criptográfico utiliza la llave de derivación para ubicar la trayectoria geométrica exacta en tiempo constante O(1), resolviendo el laberinto de forma instantánea.
 
 ---
 
